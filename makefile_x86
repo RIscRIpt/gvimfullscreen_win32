@@ -1,0 +1,9 @@
+gvimfullscreen.dll: gvimfullscreen.c
+	cl /LD user32.lib Gdi32.lib gvimfullscreen.c
+	copy gvimfullscreen.dll "D:\Program Files\vim\vim73\" /y
+
+clean: 
+	del *.obj
+	del *.dll
+	del *.exp
+	del *.lib
