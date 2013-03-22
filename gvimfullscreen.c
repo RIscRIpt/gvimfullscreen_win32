@@ -64,7 +64,11 @@ LONG _declspec(dllexport) ToggleFullScreen(int bgColor)
 
 		if(bgColor != -1){/* 如果传递了背景色,则设置Gvim的背景色 */
 			HBRUSH s_brush = CreateSolidBrush((COLORREF)bgColor);
+#ifdef _WIN64
+			SetClassLongPtr(hTop, GCLP_HBRBACKGROUND, (long)s_brush);
+#else
 			SetClassLong(hTop, GCL_HBRBACKGROUND, (long)s_brush);
+#endif
 		}
 
 		if ( GetWindowLong(hTop, GWL_STYLE) & WS_CAPTION ){
