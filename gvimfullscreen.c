@@ -62,7 +62,7 @@ LONG _declspec(dllexport) ToggleFullScreen(int bgColor)
 	if (hTop){
 		/* Determine the current state of the window */
 
-		if(bgColor != -1){/* å¦‚æžœä¼ é€’äº†èƒŒæ™¯è‰²,åˆ™è®¾ç½®Gvimçš„èƒŒæ™¯è‰² */
+		if(bgColor != -1){/* Èç¹û´«µÝÁË±³¾°É«,ÔòÉèÖÃGvimµÄ±³¾°É« */
 			HBRUSH s_brush = CreateSolidBrush((COLORREF)bgColor);
 			SetClassLong(hTop, GCL_HBRBACKGROUND, (long)s_brush);
 		}
