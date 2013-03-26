@@ -48,6 +48,16 @@ endif
 " }}}
 ```
 
+## 更新记录
+
+#### Update 2013-03-26
+
+注释掉了112行 `SetWindowLong(hTextArea, GWL_EXSTYLE, GetWindowLong(hTextArea, GWL_EXSTYLE) | WS_EX_CLIENTEDGE);`，修改过的VIM源码不需要这设置。
+
+**注意：**如果不使用修改过后的gvim.exe，在编译时请加上这一行！
+
+
+
 gVimWin32FullScreen
                                      Derek McLoughlin
 
