@@ -48,6 +48,13 @@ endif
 " }}}
 ```
 
+### 感谢
+
+源码的改进来自小秦努力，感谢！
+
+
+----------
+
 gVimWin32FullScreen
                                      Derek McLoughlin
 
