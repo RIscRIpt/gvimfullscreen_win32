@@ -56,7 +56,9 @@ endif
 
 **注意：**如果不使用修改过后的gvim.exe，在编译时请加上这一行！
 
+### 感谢
 
+源码的改进来自小秦努力，感谢！
 
 gVimWin32FullScreen
                                      Derek McLoughlin
