@@ -1,7 +1,7 @@
 gvimfullscreen.dll: gvimfullscreen.c
-	cl /LD user32.lib gdi32.lib gvimfullscreen.c
+	cl /MD /LD user32.lib gdi32.lib gvimfullscreen.c
 
-clean: 
+clean:
 	del *.obj
 	del *.dll
 	del *.exp
