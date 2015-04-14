@@ -1,163 +1,226 @@
-/*
-   cl /LD gvimfullscreen.c user32.lib gdi32.lib
-   ------------------------------
-   :call libcallnr("gvimfullscreen.dll", "ToggleFullScreen", 1)
-   */
-#include <windows.h>
+#include <Windows.h>
 
-//#pragma commen(lib, "User32.lib")
-//#pragma commen(lib, "Gdi32.lib")
+const char *szgVimWndStatus = "gVimWndStatus";
 
-#ifndef LWA_ALPHA
-#define LWA_ALPHA 2
-#endif
+HWND hTop = NULL;
+HWND hTextArea = NULL;
 
-#ifndef MONITOR_DEFAULTTONEAREST
-#define MONITOR_DEFAULTTONEAREST    0x00000002
-#endif
+typedef struct {
+	RECT win_rect;
+	LONG_PTR win_style;
+	LONG_PTR win_exstyle;
+	LONG_PTR txt_exstyle;
+	char isZoomed;
+} gvim_wnd_status_t;
 
-/*#ifndef WS_EX_LAYERD*/
-/*#define WS_EX_LAYERED 0x00080000*/
-/*#endif*/
-
-int g_x, g_y, g_dx, g_dy;
-
-BOOL CALLBACK FindWindowProc(HWND hwnd, LPARAM lParam) {
-	HWND* pphWnd = (HWND*)lParam;
-
-	if (GetParent(hwnd)) {
-		*pphWnd = NULL;
-		return TRUE;
+size_t dex2bin(char *dest, const char *src, size_t size) {
+	while(size-- && src[0] && src[1]) {
+		*(dest++) = ((src[0] & 0x0F) << 4) | (src[1] & 0x0F);
+		src += 2;
 	}
-	*pphWnd = hwnd;
+	return size;
+}
+
+void bin2dex(char *dest, const char *src, size_t size) {
+	while(size--) {
+		*(dest++) = '0' | (*src >> 4);
+		*(dest++) = '0' | (*src & 0x0F);
+		src++;
+	}
+	*dest = '\0';
+}
+
+BOOL CALLBACK FindWindowProc(HWND hWnd, LPARAM lParam) {
+	if(GetParent(hWnd))
+		return TRUE;
+	hTop = hWnd;
 	return FALSE;
 }
 
-LONG _declspec(dllexport) ToggleFullScreen() {
-	HWND hTop = NULL;
-	HWND hTextArea = NULL;
-
-	EnumThreadWindows(GetCurrentThreadId(), FindWindowProc, (LPARAM)&hTop);
+int Init() {
+	EnumThreadWindows(GetCurrentThreadId(), FindWindowProc, NULL);
 	hTextArea = FindWindowEx(hTop, NULL, "VimTextArea", "Vim text area");
+	return hTop != NULL && hTextArea != NULL;
+}
 
-	if (hTop != NULL && hTextArea != NULL) {
-		/* Determine the current state of the window */
-		HDC dc = GetDC(hTextArea);
+LONG _declspec(dllexport) ToggleFullScreen(COLORREF border_color) {
+	if(Init()) {
+		gvim_wnd_status_t status;
+		char str_hex_status[sizeof(gvim_wnd_status_t) * 2 + 1];
 
-		if (dc != NULL) {
-			COLORREF rgb = GetPixel(dc, 80, 3);
-			if(rgb != CLR_INVALID) {
-				SetDCBrushColor(dc, rgb);
-			}
-			ReleaseDC(hTextArea, dc);
-		}
+		GetEnvironmentVariableA(szgVimWndStatus, str_hex_status, sizeof(str_hex_status));
 
-		if ( GetWindowLong(hTop, GWL_STYLE) & WS_CAPTION ) {
-			/* Has a caption, so isn't maximised */
-
-			MONITORINFO mi;
-			RECT rc;
-			HMONITOR hMonitor;
-			long unsigned int z;
-			char p[MAX_PATH];
-
-			z = (long unsigned int)IsZoomed(hTop)?1:0;
-			if(z) {
-				SendMessage(hTop, WM_SYSCOMMAND, SC_RESTORE, 0);
-			}
-
-			GetWindowRect(hTop, &rc);
-			sprintf(p, "gVim_Position=%ld\t%ld\t%ld\t%ld\t%d", rc.left, rc.top, rc.right-rc.left, rc.bottom-rc.top, z);
-			putenv(p);
-
-			hMonitor = MonitorFromRect(&rc, MONITOR_DEFAULTTONEAREST);
+		//
+		// Check if gVim Window Status environment variable was set
+		//
+		if(GetLastError() == ERROR_ENVVAR_NOT_FOUND) {
+			//
+			// No window status was found, try to go to fullscreen
+			// Save current gVim window status
+			//
+			status.isZoomed    = IsZoomed(hTop) ? 1 : 0;
+			status.win_style   = GetWindowLongPtr(hTop,      GWL_STYLE);
+			status.win_exstyle = GetWindowLongPtr(hTop,      GWL_EXSTYLE);
+			status.txt_exstyle = GetWindowLongPtr(hTextArea, GWL_EXSTYLE);
+			GetWindowRect(hTop, &status.win_rect);
 
 			//
-			// get the work area or entire monitor rect.
+			// Encode current window status,
+			// and try to set it up
 			//
-			mi.cbSize = sizeof(mi);
-			GetMonitorInfo(hMonitor, &mi);
+			bin2dex(str_hex_status, &status, sizeof(status));
+			if(SetEnvironmentVariableA(szgVimWndStatus, str_hex_status, sizeof(str_hex_status))) {
+				//
+				// Environment variable of window status was successfully set up.
+				// Enable fullscreen mode
+				//
+				HDC hDC;
+				HMONITOR hMonitor;
+				MONITORINFO mi;
 
-			g_x = mi.rcMonitor.left;
-			g_y = mi.rcMonitor.top;
-			g_dx = mi.rcMonitor.right - g_x;
-			g_dy = mi.rcMonitor.bottom - g_y;
-
-			/* Remove border, caption, and edges */
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_EXSTYLE) & ~WS_BORDER);
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_STYLE) & ~WS_CAPTION);
-			SetWindowLong(hTop, GWL_EXSTYLE, GetWindowLong(hTop, GWL_STYLE) & ~WS_EX_CLIENTEDGE);
-			SetWindowLong(hTop, GWL_EXSTYLE, GetWindowLong(hTop, GWL_EXSTYLE) & ~WS_EX_WINDOWEDGE);
-
-			SetWindowPos(hTop, HWND_TOP, g_x, g_y, g_dx, g_dy, SWP_SHOWWINDOW);
-
-			SetWindowLong(hTextArea, GWL_EXSTYLE, GetWindowLong(hTextArea, GWL_EXSTYLE) & ~WS_EX_CLIENTEDGE); 
-			SetWindowPos(hTextArea, HWND_TOP, 0, 0, g_dx, g_dy, SWP_SHOWWINDOW);
-		}else{
-			long unsigned int L, R, W, H, Z;
-			char *p;
-
-			/* Already full screen, so restore all the previous styles */
-			SetWindowLong(hTop, GWL_EXSTYLE, GetWindowLong(hTop, GWL_EXSTYLE) | WS_BORDER);
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_STYLE) | WS_CAPTION);
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_STYLE) | WS_SYSMENU);
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_STYLE) | WS_MINIMIZEBOX);
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_STYLE) | WS_MAXIMIZEBOX);
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_STYLE) | WS_SYSMENU);
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_STYLE) | WS_EX_CLIENTEDGE);
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_STYLE) | WS_EX_WINDOWEDGE);
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_STYLE) | WS_THICKFRAME);
-			SetWindowLong(hTop, GWL_STYLE, GetWindowLong(hTop, GWL_STYLE) | WS_DLGFRAME);
-
-			/*SetWindowLong(hTextArea, GWL_EXSTYLE, GetWindowLong(hTextArea, GWL_EXSTYLE) | WS_EX_CLIENTEDGE); 修改过的VIM源码不需要这设置*/
-
-			if((p = getenv("gVim_Position")) != NULL) {
-				sscanf(p, "%ld\t%ld\t%ld\t%ld\t%d", &L, &R, &W, &H, &Z);
-				SetWindowPos(hTop, HWND_TOP, L, R, W, H, SWP_SHOWWINDOW);
-				if(Z) {
-					SendMessage(hTop, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
+				if((hDC = GetDC(hTextArea)) != NULL) {
+					if(border_color == -1) {
+						//
+						// Try to get precise color of background, if it wasn't specified
+						//
+						RECT rc;
+						if(GetClientRect(hTextArea, &rc))
+							border_color = GetPixel(hDC, rc.right - 2, rc.bottom - 2);
+					}
+					SetDCBrushColor(hDC, border_color);
+					SetClassLongPtr(hTextArea, GCLP_HBRBACKGROUND, GetStockObject(DC_BRUSH));
+					ReleaseDC(hTextArea, hDC);
 				}
-			}
-		};
 
-#ifdef _WIN64
-		SetClassLongPtr(hTextArea, GCLP_HBRBACKGROUND, (LONG)GetStockObject(DC_BRUSH));
-#else
-		SetClassLong(hTextArea, GCL_HBRBACKGROUND, (LONG)GetStockObject(DC_BRUSH));
-#endif
+				//
+				// Get the work area or entire monitor rect.
+				//
+				hMonitor = MonitorFromRect(&status.win_rect, MONITOR_DEFAULTTONEAREST);
+				mi.cbSize = sizeof(mi);
+				GetMonitorInfo(hMonitor, &mi);
+
+				//
+				// Restore window if it is maximized
+				//
+				if(status.isZoomed)
+					SendMessage(hTop, WM_SYSCOMMAND, SC_RESTORE, 0);
+
+				//
+				// Remove borders
+				//
+				SetWindowLongPtr(hTop,      GWL_STYLE,   status.win_style   & ~(
+							WS_OVERLAPPEDWINDOW |
+							WS_BORDER));
+				SetWindowLongPtr(hTop,      GWL_EXSTYLE, status.win_exstyle & ~(
+							WS_EX_OVERLAPPEDWINDOW |
+							WS_EX_DLGMODALFRAME |
+							WS_EX_STATICEDGE));
+				SetWindowLongPtr(hTextArea, GWL_EXSTYLE, status.txt_exstyle & ~(
+							WS_EX_OVERLAPPEDWINDOW |
+							WS_EX_DLGMODALFRAME |
+							WS_EX_STATICEDGE));
+
+				//
+				// Set position to fill entire screen
+				//
+				SetWindowPos(hTop,
+						HWND_TOP,
+						mi.rcMonitor.left,
+						mi.rcMonitor.top,
+						mi.rcMonitor.right - mi.rcMonitor.left,
+						mi.rcMonitor.bottom - mi.rcMonitor.top,
+						SWP_SHOWWINDOW
+						);
+				SetWindowPos(
+						hTextArea,
+						HWND_TOP,
+						0,
+						0,
+						mi.rcMonitor.right - mi.rcMonitor.left,
+						mi.rcMonitor.bottom - mi.rcMonitor.top,
+						SWP_SHOWWINDOW);
+			}
+		} else {
+			//
+			// Try to decode previous gVim window status
+			//
+			if(dex2bin(&status, str_hex_status, sizeof(status)) != 0) {
+				SetWindowLongPtr(hTop,      GWL_STYLE,   status.win_style);
+				SetWindowLongPtr(hTop,      GWL_EXSTYLE, status.win_exstyle);
+				SetWindowLongPtr(hTextArea, GWL_EXSTYLE, status.txt_exstyle);
+				SetWindowPos(
+						hTop,
+						HWND_TOP,
+						status.win_rect.left,
+						status.win_rect.top,
+						status.win_rect.right - status.win_rect.left,
+						status.win_rect.bottom - status.win_rect.top,
+						SWP_SHOWWINDOW
+						);
+				if(status.isZoomed)
+					SendMessage(hTop, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
+			}
+			//
+			// Remove previous window status,
+			// as full screen mode must has been disabled
+			//
+			SetEnvironmentVariable(szgVimWndStatus, NULL, 0);
+		}
 	}
 	return GetLastError();
 }
 
 LONG _declspec(dllexport) SetAlpha(LONG nTrans) {
-	HWND hTop = NULL;
-
-	EnumThreadWindows(GetCurrentThreadId(), FindWindowProc, (LPARAM)&hTop);
-
-	if(hTop != NULL) {
+	if(Init()) {
+		LONG_PTR exs = GetWindowLongPtr(hTop, GWL_EXSTYLE);
 		if(nTrans == 255) {
-			SetWindowLong(hTop, GWL_EXSTYLE, GetWindowLong(hTop, GWL_EXSTYLE) & ~WS_EX_LAYERED); 
-		}else{
-			SetWindowLong(hTop, GWL_EXSTYLE, GetWindowLong(hTop, GWL_EXSTYLE) | WS_EX_LAYERED);
+			if(exs & WS_EX_LAYERED)
+				SetWindowLongPtr(hTop, GWL_EXSTYLE, exs & ~WS_EX_LAYERED);
+		} else {
+			if(!(exs & WS_EX_LAYERED))
+				SetWindowLongPtr(hTop, GWL_EXSTYLE, exs |  WS_EX_LAYERED);
 			SetLayeredWindowAttributes(hTop, 0, (BYTE)nTrans, LWA_ALPHA);
 		}
 	}
 	return GetLastError();
 }
 
-LONG _declspec(dllexport) EnableTopMost(LONG bEnable) {
-	HWND hTop = NULL;
-	DWORD dwThreadID;
+LONG _declspec(dllexport) AddAlpha(LONG nAlpha) {
+	if(Init()) {
+		LONG nCurAlpha;
+		LONG_PTR exs;
 
-	dwThreadID = GetCurrentThreadId();
-	EnumThreadWindows(dwThreadID, FindWindowProc, (LPARAM)&hTop);
+		exs = GetWindowLongPtr(hTop, GWL_EXSTYLE);
 
-	if(hTop) {
-		if (bEnable == 0) {
-			SetWindowPos(hTop, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
-		}else{
-			SetWindowPos(hTop, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
+		if(!(exs & WS_EX_LAYERED)) {
+			nCurAlpha = 255;
+			SetWindowLongPtr(hTop, GWL_EXSTYLE, exs | WS_EX_LAYERED);
+		} else {
+			nCurAlpha = 0;
+			GetLayeredWindowAttributes(hTop, NULL, &nCurAlpha, LWA_ALPHA);
 		}
+
+		nCurAlpha += nAlpha;
+		if(nCurAlpha > 255)
+			nCurAlpha = 255;
+		else if(nCurAlpha < 0)
+			nCurAlpha = 0;
+
+		SetLayeredWindowAttributes(hTop, 0, nCurAlpha, LWA_ALPHA);
+		if(nCurAlpha == 255)
+			SetWindowLongPtr(hTop, GWL_EXSTYLE, exs & ~WS_EX_LAYERED);
 	}
 	return GetLastError();
 }
+
+LONG _declspec(dllexport) EnableTopMost(LONG bEnable) {
+	if(Init())
+		SetWindowPos(
+				hTop,
+				bEnable ? HWND_TOPMOST : HWND_NOTOPMOST,
+				0, 0, 0, 0,
+				SWP_NOSIZE | SWP_NOMOVE
+				);
+	return GetLastError();
+}
+
